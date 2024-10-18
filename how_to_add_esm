@@ -1,0 +1,113 @@
+Add ESM / FIPS : Repository in Landscape on Press
+
+ESM : Expanded Security Maintenance provides ongoing security fixes for Ubuntu, the Linux kernel and packages in Ubuntu repositories packages beyond the five-year
+
+An Ubuntu Pro subscription is needed in order to continue : https://ubuntu.com/pro
+
+Step 1 : Enable ESM 
+
+pro enable esm-apps
+pro enable esm-infra
+
+root@brest:~# pro status
+SERVICE          ENTITLED  STATUS       DESCRIPTION
+anbox-cloud      yes       disabled     Scalable Android in the cloud
+esm-apps         yes       enabled      Expanded Security Maintenance for Applications
+esm-infra        yes       enabled      Expanded Security Maintenance for Infrastructure
+fips-preview     yes       disabled     Preview of FIPS crypto packages undergoing certification with NIST
+fips-updates     yes       disabled     FIPS compliant crypto packages with stable security updates
+livepatch        yes       disabled     Canonical Livepatch service
+realtime-kernel* yes       disabled     Ubuntu kernel with PREEMPT_RT patches integrated
+usg              yes       disabled     Security compliance and audit tools
+
+Step 2 : Collect tokens
+
+cat /etc/apt/auth.conf.d/90ubuntu-advantage
+
+root@brest:~# cat /etc/apt/auth.conf.d/90ubuntu-advantage
+machine esm.ubuntu.com/infra/ubuntu/ login bearer password mAesserdfgB<Truncated>cTwefsdfsdfsf  # ubuntu-pro-client
+
+# ubuntu-pro-client
+machine esm.ubuntu.com/apps/ubuntu/ login bearer password sdfFSfrdfgB<Truncated>wTRdfgw  # ubuntu-pro-client
+
+
+Step 3 : Import GPG keys
+
+You can list the gpg keys with : gpg --list-key
+
+For ESM Infra :
+
+wget -O infra-mirror-key.gpg 'http://keyserver.ubuntu.com/pks/lookup?op=get&search=0x56f7650a24c9e9ecf87c4d8d4067e40313cb4b13'
+
+gpg --import infra-mirror-key.gpg
+
+gpg -a --export 56F7650A24C9E9ECF87C4D8D4067E40313CB4B13 > infra-mirror-key.asc
+
+landscape-api import-gpg-key infra-mirror-key infra-mirror-key.asc
+
+For ESM Apps :
+wget -O apps-mirror-key.gpg 'http://keyserver.ubuntu.com/pks/lookup?op=get&search=0xe8a443ce358113d187bee0e6ab01a101db53907b'
+gpg --import apps-mirror-key.gpg
+gpg -a --export E8A443CE358113D187BEE0E6AB01A101DB53907B > apps-mirror-key.asc
+landscape-api import-gpg-key apps-mirror-key apps-mirror-key.asc
+
+For FIPS :
+wget -O fips-mirror-key.gpg 'http://keyserver.ubuntu.com/pks/lookup?op=get&search=0xE23341B2A1467EDBF07057D6C1997C40EDE22758'
+gpg --import fips-mirror-key.gpg
+gpg -a --export E23341B2A1467EDBF07057D6C1997C40EDE22758 > fips-mirror-key.asc
+landscape-api import-gpg-key fips-mirror-key fips-mirror-key.asc
+
+Step 4 : Create Repository
+
+
+ESM INFRA REPOSITORY :
+
+landscape-api create-series --pockets security,updates --components main --architectures amd64 --mirror-gpg-key esm-mirror-key --gpg-key mirror-key --mirror-uri https://bearer:<token>@esm.ubuntu.com/infra/ubuntu --mirror-series bionic-infra bionic-infra ubuntu
+landscape-api create-series --pockets security,updates --components main --architectures amd64 --mirror-gpg-key esm-mirror-key --gpg-key mirror-key --mirror-uri https://bearer:<tocken>@esm.ubuntu.com/infra/ubuntu --mirror-series focal-infra focal-infra ubuntu
+landscape-api create-series --pockets security,updates --components main --architectures amd64 --mirror-gpg-key esm-mirror-key --gpg-key mirror-key --mirror-uri https://bearer:<tocken>@esm.ubuntu.com/infra/ubuntu --mirror-series jammy-infra jammy-infra ubuntu
+
+ESM APPS REPOSITORY :
+
+landscape-api create-series --pockets security,updates --components main --architectures amd64 --mirror-gpg-key esm-mirror-key --gpg-key mirror-key --mirror-uri https:bearer:<token>@esm.ubuntu.com/apps/ubuntu --mirror-series bionic-apps bionic-apps ubuntu
+landscape-api create-series --pockets security,updates --components main --architectures amd64 --mirror-gpg-key esm-mirror-key --gpg-key mirror-key --mirror-uri https://bearer:<token>@esm.ubuntu.com/apps/ubuntu --mirror-series focal-apps focal-apps ubuntu
+landscape-api create-series --pockets security,updates --components main --architectures amd64 --mirror-gpg-key esm-mirror-key --gpg-key mirror-key --mirror-uri https://bearer:<token>@esm.ubuntu.com/apps/ubuntu --mirror-series jammy-apps jammy-apps ubuntu
+
+Last Step : Sync your repos 
+#!/bin/bash
+# Fabien ROFFET : Sync ESM repos
+# Corrected : 29.04.2024 : Fabe - Fix Check and add more series
+# Config
+DISTRO=ubuntu
+SERIES=("jammy-apps" "jammy-infra")
+POCKET=("updates" "security")
+WAIT=30
+# Check if previous job finished
+check() {
+    while true; do
+        progress=$(landscape-api get-activities --query type:SyncPocketRequest --limit 1 | grep progress | awk '{print $2}' | tr -d ",")
+        if [ "$progress" -eq 100 ]; then
+            echo "Job is complete."
+            break
+        else
+            echo "Waiting for current job to reach 100%... Current progress: $progress%"
+            sleep $WAIT
+        fi
+    done
+}
+
+# Perform pocket sync job
+sync() {
+    local series="$1"
+    local pocket="$2"
+    echo "Synchronizing $pocket for $series"
+    landscape-api sync-mirror-pocket "$pocket" "$series" "$DISTRO" >/dev/null 2>&1
+    sleep 3
+    check
+}
+# Main script
+for series in "${SERIES[@]}"; do
+    for pocket in "${POCKET[@]}"; do
+        sync "$series" "$pocket"
+    done
+done
+echo "Sync complete"
